@@ -9,65 +9,96 @@ library(C50)
 #bringing the data
 complete<-read.csv("CompleteResponses.csv")
 
-#abouth the data
+
+#PLOTTING THE DATA
+#plot(complete)
+
+ggplot(data = complete,
+       mapping = aes(x = credit, y = salary, color = brand)) +
+geom_point()
+
+
+hist(complete$credit, freq = F)
+hist(complete$age, freq = F) 
+hist(complete$salary, freq = FALSE)
+
+hist(complete$salary,probability=T, main="data distrbution
+",xlab="salary")
+lines(density(complete$salary),col=2)
+
+
+shapiro.test(testing$salary) ###data is not normally distributed
+
+
+#about the data______________________________________________________________________________-
 summary(complete)
 str(complete)
 nrow(complete)
 
-#corr matrix, we see car and elevel highly corr we will have to get rid of one of them
+
+#FEATURE SELECTION ___________________________________________________________________FEATURE SELECTION
+
+#corr matrix, we see car and elevel highly corr we will have to get rid of one of them at least
+#also age and salary low corelated
 res2 <- rcorr(as.matrix(complete))
+
 res2
 
+#decision tree on the data
+library(rpart)
 
-#removing car attribute
-complete <- complete[c(1,2,3,5,6,7)]
+rpartMod = rpart(brand ~ .
+                 , data = training
+                 , control = rpart.control(minsplit = 5
+                                           , cp = 0
+                                           , maxdepth = 3)
+)
+
+pred = predict(rpartMod, testing, type = "class")
+sum(testing[, 5] != pred)
+
+#visualize decision tree# we see that the tree chose salary and age as the nodes
+library(rattle)
+fancyRpartPlot(rpartMod)
+
+#removing car,elevels,credit attributes
+complete <- complete[c(1,2,7)]
 str(complete)
 
+#__________________________________________________________________
 #PREPROCESSING
 
-#transforming from numeric to factors
-#complete$brand<-as.factor(complete$brand)
+#normalizing the age and salary
 
-complete$elevel<-as.factor(complete$elevel) 
-complete$zipcode<-as.factor(complete$zipcode)
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+ 
+complete$salary<-normalize(complete$salary)
+complete$age<-normalize(complete$age)
+
+#transforming from numeric to factors
+
 complete$brand<-as.factor(complete$brand)
-levels(complete$brand) <- c("A","S")
+levels(complete$brand) <- c("Acer","Sony")
 str(complete)
+
 
 #finding missing values
 sum(is.na(complete)) #no missing values
 
-#finding outliers in credit
-outlier_tfCredit = outlier(complete$credit,logical=TRUE)
-sum(outlier_tfCredit)
-
-#what were the ouliers in credit
-find_outlierCredit = which(outlier_tfCredit==TRUE,arr.ind=TRUE)
-#Removing the outliers in credit
-complete= complete[-find_outlierCredit,]
-nrow(complete)
-
 
 #finding outliers in salary
-outlier_tfSalary = outlier(complete$credit,logical=TRUE)
+outlier_tfSalary = outlier(complete$salary,logical=TRUE)
 sum(outlier_tfSalary)
 
-#what were the ouliers in credit
+#what were the ouliers in salary
 find_outlierSalary = which(outlier_tfSalary==TRUE,arr.ind=TRUE)
-#Removing the outliers in credit
+#Removing the outliers in salary
 complete= complete[-find_outlierSalary,]
 nrow(complete)
 
-
-
-
-#binning the credit and salary
-bin(
-  complete$credit,
-  nbins = 5, 
-  labels = NULL, 
-  method = c( "content")
-  )
+#binning the salary
 
 bin(
   complete$salary,
@@ -79,6 +110,9 @@ bin(
 str(complete)
 
 
+
+#_________________________________________________________________________________SPLITTING THE DATA
+#SPLITTING THE DATA
 #creating the trainig and testing sets
 set.seed(123)
 
@@ -95,31 +129,37 @@ nrow(testing)
 
 
 
-testing
-training
+head(testing)
+head(training)
 str(testing)
 
+
+
+#___________________________________________________________________________________________BUILDING THE MODELS________
+#BUILGING THE MODELS
 #traincontrol-modifies resampling method
 
+
 ctrl <- trainControl(
-  method = "repeatedcv",
-  number = 10,
-  repeats = 3,
-  summaryFunction = multiClassSummary
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     summaryFunction = multiClassSummary,
+                     classProbs = TRUE
+                     )
 
-)
+#____________________________________________________________________________________DECISION TREE
 
+#C5.0 Decision Tree
 
+set.seed(123)
 treeFit <- train(
-  brand~.,
-  data = training,
-  preProcess = c("range"),
-  method = "C5.0", 
-  trControl=ctrl,
-  metric = "Accuracy",
-  tuneLength = 3
-
-)
+                 brand~.,
+                 data = training,
+                 method = "C5.0", 
+                 trControl=ctrl,
+                 tuneLength = 3,
+                )
 
 treeFit
 
@@ -128,27 +168,85 @@ treeBrand <- predict(treeFit, newdata = testing)
 
 #computes class probabilities for the model
 treeProbs <- predict(treeFit, newdata = testing, type = "prob")
-
+treeProbs
 
 #confusion matrix and the statistics
 
 confusionMatrix(data= treeBrand, testing$brand)
 
 
-#decision tree on the data
-library(rpart)
+summary(treeFit)
 
-rpartMod = rpart(brand ~ .
-                , data = training
-                , control = rpart.control(minsplit = 5
-                , cp = 0
-                , maxdepth = 4)
-                )
+#________________________________________________________________________________________RANDOM FOREST
 
-pred = predict(rpartMod, testing, type = "class")
-sum(testing[, 5] != pred)
+#Random Forest
 
-#visualize decision tree
-library(rattle)
-fancyRpartPlot(rpartMod)
+ctrl <- trainControl(
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     summaryFunction = multiClassSummary
+                    )
+
+
+#mtry
+mtry <- mtry == seq(2,ncol(training)-1,1)
+rfGrid <- expand.grid(.mtry=mtry)
+
+set.seed(123)
+
+
+#train the model
+system.time(
+          randomForestFit <- train(
+                                   brand~.,
+                                   data = training,
+                                   preProcess = c("range"),
+                                   method = "rf", 
+                                   trControl=ctrl,
+                                   tuneGrid=rfGrid
+                                  )
+            )
+
+randomForestFit
+
+
+#PREDICT THE BRAND
+rfBrand <- predict(randomForestFit, newdata = testing)
+
+#computes class probabilities for the model
+rfProbs <- predict(randomForestFit, newdata = testing, type = "prob")
+rfProbs
+
+#confusion matrix for the random forest model
+confusionMatrix(data= rfBrand, testing$brand)
+
+
+#importance
+
+plot(varImp(randomForestFit))
+
+summary(randomForestFit)
+
+
+####_______________________________________________COMPARING THE MODELS
+
+resamps <- resamples(list(tree = treeFit, forest = randomForestFit))
+summary(resamps)
+
+#visualize the comparation 
+xyplot(resamps, what = "BlandAltman")
+
+dotplot(resamps)
+
+bwplot(resamps)
+
+#For each resample, there are paired results a paired t–test can be used to assess whether there
+#is a difference in the average resampled area under the ROC curve
+
+diffs <- diff(resamps)
+summary(diffs)
+plot.train(treeFit)
+#rf better
+
 
