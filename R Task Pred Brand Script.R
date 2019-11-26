@@ -16,7 +16,7 @@ complete<-read.csv("CompleteResponses.csv")
 ggplot(data = complete,
        mapping = aes(x = credit, y = salary, color = brand)) +
 geom_point()
-
+tinytex::install_tinytex()
 
 hist(complete$credit, freq = F)
 hist(complete$age, freq = F) 
@@ -162,6 +162,7 @@ treeFit <- train(
                 )
 
 treeFit
+varImp(treeFit)
 
 #PREDICT THE BRAND
 treeBrand <- predict(treeFit, newdata = testing)
@@ -190,7 +191,7 @@ ctrl <- trainControl(
 
 
 #mtry
-mtry <- mtry == seq(2,ncol(training)-1,1)
+mtry <- c(2,1,3,5,12,32)
 rfGrid <- expand.grid(.mtry=mtry)
 
 set.seed(123)
@@ -201,15 +202,16 @@ system.time(
           randomForestFit <- train(
                                    brand~.,
                                    data = training,
-                                   preProcess = c("range"),
+                                   preProcess = c("center"),
                                    method = "rf", 
                                    trControl=ctrl,
-                                   tuneGrid=rfGrid
+                                   tuneGrid=rfGrid,
+                                   importance=T
                                   )
             )
 
 randomForestFit
-
+varImp(randomForestFit)
 
 #PREDICT THE BRAND
 rfBrand <- predict(randomForestFit, newdata = testing)
@@ -249,4 +251,54 @@ summary(diffs)
 plot.train(treeFit)
 #rf better
 
+###APPLYING THE RandomTree MODEL ON THE INCOMPLETE DATA
 
+
+incompletef <- read.csv("SurveyIncomplete.csv")
+incomplete
+
+#feature sel
+incomplete<- incompletef[c(1,2,7)]
+#preprocessing
+incomplete$salary<-normalize(incomplete$salary)
+incomplete$age<-normalize(incomplete$age)
+incomplete$brand<-as.factor(incomplete$brand)
+levels(incomplete$brand) <- c("Acer","Sony")
+str(incomplete)
+
+bin(
+  incomplete$salary,
+  nbins = 5, 
+  labels = NULL, 
+  method = c( "content")
+)
+
+str(incomplete)
+
+#apllying model
+
+finalPredictionBrand <- predict(treeFit, newdata = incomplete, )
+
+finalPredictionBrandProbs <- predict(treeFit, newdata = incomplete, type = "prob" )
+
+finalPredictionBrandProbs
+
+#After making the predictions using the test set use postResample() 
+#to assess the metrics of the new predictions compared to the Ground Truth???? 
+#  Accuracy       Kappa 
+# 0.528016360 0.003599927 
+
+postResample(finalPredictionBrand,testing$brand)
+
+postResample(finalPredictionBrandProbs,treeProbs)
+
+#summary predictions
+summary(finalPredictionBrand)
+
+
+completeNewData <- incompletef[c(1,2,3,4,5,6)]
+completeNewData <- cbind(completedNewData, predictedBrand = finalPredictionBrand)
+completeNewData
+write.csv(completeNewData, "PredictedBrands.csv")
+
+          
