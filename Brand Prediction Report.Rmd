@@ -1,0 +1,409 @@
+---
+title: "Predict which Brand of Products Customers Prefer Report"
+author: "Damsa Ioana"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document: 
+    highlight: pygments
+    keep_md: yes
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    highlight: pygments
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# OBJECTIVES AND OVERVIEW
+
+  For this task, based on the data that the marketing department collected, we have to predict our customers brand preferences regarding the laptop category for the incomplete data that was lest without the brand preference stated. 
+  
+  We need to conclude this prediction so that our company knows with which of the brands (Acer or Sony) to folow a collaborative agreement.
+  
+  In order to do this we will follow the data analysis and model building/ predicting flow by inspecting the data, preparing the data and perform any preprocessing necessary, do the feature selection, sample the data, build the models, perfect them and train them. Final step is applying the model on the incomplete data and predict the preference in laptop brand of our customers.
+  
+# Data visualization
+  
+```{r libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(caret)
+library(ggplot2)
+library(readr)
+library(outliers)
+library(OneR)
+library(Hmisc)
+library(C50)
+
+#bringing the data
+complete<-read.csv("CompleteResponses.csv")
+res2 <- rcorr(as.matrix(complete))
+
+res2
+```
+  After bringing our data in the R environment we procced in looking over the data types, variables and the general characteristics of our data set.
+  
+```{r summary and str, echo=TRUE, warning=FALSE}
+summary(complete)
+
+str(complete)
+
+nrow(complete)#number of rows
+```
+
+  We can see that the variables that we have are all numeric numeric and taht we will have to change some of them to factors.We proceed to change the lable variable brand from numeric to factor and rename the levels from "1" and "0" to "Acer" for "0" and "Sony" for "1".
+  
+  Next step is visualizing the data through some plots in order to see the distribution, relationships and patterns that may appear. To achieve this we will be using the library ggplot. 
+  
+  
+```{r plot salary hist, echo=FALSE}
+ggplot(complete,aes(x=salary))+
+                geom_histogram(bins = 30,color="black",fill="cyan2")+
+                ggtitle("The Distribution of the Salary")+
+                scale_x_continuous(name="Salary",breaks=seq(20000,500000,50000))
+               
+
+```
+  As we can see from the histogram above the distribution of the salary values is not a Gaussian one (Nomrmal distribution). We might want to check if other features have a similar problem.
+
+```{r plot credit hist, echo=FALSE}
+
+ggplot(complete,aes(x=credit))+
+                geom_histogram(binwidth  =20000,color="black",fill="cyan2")+
+                ggtitle("The Distribution of the Credit")+
+                scale_x_continuous(name="Credit", breaks=seq(0,500000,50000))
+ 
+            
+```
+
+  After running the histogram for the credit and all the other features(age, education levels, type of car) we can conclude that our dataset doesen't have a normal distribution. We will proceed with our prediction process and talk about this at the end of this report.
+    We proceed to check out the percentage of people that prefer each brand and how the brand related to other attributes.
+    
+    
+ 
+```{r plot brand, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Transforming just for the plots
+complete$Preferedbrand<-as.factor(complete$brand)
+levels(complete$Preferedbrand) <- c("Acer","Sony")
+
+
+ggplot(complete,aes(x=Preferedbrand, fill=Preferedbrand))+
+                geom_bar()+
+                labs(title="Prefered Brands by Number")+
+                theme_light()
+
+
+ggplot(complete, aes(x="",fill=Preferedbrand))+
+                geom_bar()+ 
+                coord_polar(theta="y")+
+                labs(x=" ",y=" ", title = "Proportion of Prefered Brands")+
+                theme_light()
+ 
+```   
+ 
+  From the histogram and piechart above we can conclude that out of the surveyed customers the majority prefered Sony. Let's see how the brand related with the salary and age of the customers.
+  
+```{r age salary, echo=FALSE}
+ggplot(complete, aes(x=age, y=salary, col=Preferedbrand)) + 
+  geom_point()+
+  labs(title="Relationship Between Age, Salary and Brand Preference")
+```
+ 
+ 
+  Based on the plot above we can conclude that the age and salary do have an effect on the brand that our customers chose.
+  After further visualization we have seen that the car type, credit and education level have none to very low effect on the brand chosen. We will keep this in mind when doing our feature selection.
+  
+# Data PreProcessing and Feature Selection
+
+  We will start of by running a correlation matrix on our data and exclude any highly correlated features. The car and education elev are highly correlated (0.9963) so we will discard them both because of the high correlation and low significance seen by plotting the data. Also in the correlation matrix the salary seem that isn't correlated with the brand but we know it is based on our visualizations.
+```{r corr mat, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+res2
+```
+```{r SUBSETTING, echo=T}
+#removing car,elevels,credit attributes
+complete <- complete[c(1,2,7)]
+str(complete)
+```
+
+
+  Next we will transform the brand into a factor, and try to see if we have any missing values. Also we will proceed to normalize the salary and age, find and remove the outliers in the salary and  bin it.
+```{r normalize,  echo = T, results = 'hide'}
+
+
+#transforming brand to a factor and setting the levels
+
+complete$brand<-as.factor(complete$brand)
+levels(complete$brand) <- c("Acer","Sony")
+
+#normalize the salary and age
+
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+ 
+complete$salary<-normalize(complete$salary)
+complete$age<-normalize(complete$age)
+
+#finding missing values
+
+
+sum(is.na(complete)) #no missing values
+
+
+#finding outliers in salary
+
+outlier_tfSalary = outlier(complete$salary,logical=TRUE)
+sum(outlier_tfSalary)
+
+#what were the ouliers in salary
+
+find_outlierSalary = which(outlier_tfSalary==TRUE,arr.ind=TRUE)
+
+#Removing the outliers in salary
+
+complete= complete[-find_outlierSalary,]
+
+
+#binning the salary
+
+bin(
+  complete$salary,
+  nbins = 5, 
+  labels = NULL, 
+  method = c( "content")
+)
+
+```
+  
+  We can see that after we are done with the prerpocessing we have 3 features (salary,age and brand) ,age and salary are normalized and brand is a factor with 2 levels.
+```{r complete pre, echo=FALSE}
+str(complete)
+```
+  
+# Building the Models
+
+  For this task we will build 2 models: a C5.0 Decision Tree and a Random forest Models. To build them, partition the data and make the predictions we will use the CARET library.
+  
+## Partitioning the Data
+  
+  Before starting building the models we need to split our data in 2 sets: the subset we will use for training the models and the testing set the one that we will use for testing the performance of our models.
+
+```{r part, echo=TRUE}
+#creating the numbers for each set with a 75 % ratio
+
+set.seed(123)
+
+inTrain<- createDataPartition(y= complete$brand,p=.75, list = FALSE) 
+
+#partitioning the data into training and testing set
+
+training <- complete[ inTrain,]
+testing <- complete[-inTrain,]
+
+#number of rows and the table head in each set
+nrow(training)
+head(training)
+nrow(testing)
+head(testing)
+
+```
+
+## Setting Cross-Validation as Training Method
+
+  We set theresampling procedure as a 10 fold cross validation that will repeat 3 times.
+
+```{r train c, message=TRUE, warning=FALSE}
+ctrl <- trainControl(
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     summaryFunction = multiClassSummary,
+                     classProbs = TRUE
+                     )
+```
+
+## C5.0 Decision tree
+  Using the train function that we hava available in CARET we now train our C5.0 model on the training data.
+
+```{r train forest, message=FALSE, warning=FALSE}
+set.seed(123)
+treeFit <- train(
+                 brand~.,
+                 data = training,
+                 method = "C5.0", 
+                 trControl=ctrl,
+                 tuneLength = 3,
+                )
+
+```
+
+### Prediction and Performance C5.0 
+
+ Next we used the model to predict the brand on the testing data and build the confusion matrix for this model. From the confusion matrix we know that the model has an accuracy of 0.9235  and a Kappa of 0.839 . That means that the model is pretty good at prediciting the brand on the testing data.
+
+```{r predict and conf }
+
+#apllying the model on test
+
+treeBrand <- predict(treeFit, newdata = testing)
+
+#confusion matrix and the statistics
+
+confusionMatrix(data= treeBrand, testing$brand)
+
+```
+
+## Random Forest Model
+
+  For the second model we have the Random Forest Algorithm using the Cross Validation procedure like for the Decision Tree. For this model we manually tuned the parameters of the model and gave to the mrty parameter different values and the algorithm decided that mrty = 1 was the best value.
+
+```{r random forest algo, message=FALSE, warning=FALSE}
+#setting the cross valdidation
+
+ctrl <- trainControl(
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     summaryFunction = multiClassSummary
+                    )
+
+
+#setting the mtry
+
+mtry <- c(2,1,3,5,12,32)
+rfGrid <- expand.grid(.mtry=mtry)
+
+set.seed(123)
+
+
+#train the model
+
+system.time(
+          randomForestFit <- train(
+                                   brand~.,
+                                   data = training,
+                                   preProcess = c("center"),
+                                   method = "rf", 
+                                   trControl=ctrl,
+                                   tuneGrid=rfGrid,
+                                   importance=T
+                                  )
+            )
+
+```
+  
+
+###Prediction and Performance Random Forest
+
+  The model was then applyed to the testing data and the confusion matrix was drawn up. The performance of this model was good with an accuracy of 0.9043  and kappa of 0.7978.
+  
+```{r rf pred y confu}
+#applying the model on test
+
+rfBrand <- predict(randomForestFit, newdata = testing)
+
+#confusion matrix for the random forest model
+
+confusionMatrix(data= rfBrand, testing$brand)
+
+
+```
+  
+## Comparing the Models
+
+  Using the resample function we saw the comparation between the two models and could apreciate that the C5.0 Decision Tree is slightly better than the Random Forest and not so computationally expensive. We will also see this in the next visualizations
+  
+```{r compa, echo=FALSE, message=TRUE, warning=FALSE}
+#resampling
+
+resamps <- resamples(list(tree = treeFit, forest = randomForestFit))
+
+#visualize the comparation 
+
+splom(resamps)
+dotplot(resamps, metric = "Kappa")
+#For each resample, there are paired results a paired t–test can be used to assess whether there
+#is a difference in the average resampled area under the ROC curve
+
+diffs <- diff(resamps)
+#summary(diffs)
+#rf better
+
+```
+
+# Predicting the Prefered Brand
+
+
+  The last step in our Task was using the model that we trained and apply it to the incomplete survey data. After applying it we will explore the results we get and inferate which is the prefered brand of the customers and with which of the two, Acer or Sony, should Blackwell consider a business relationship in the future.
+  
+  This process is made of several steps: bringing the incomplete data into the R enviroment, preprocessing it exactly how we did with the complete data (normalization, change of variable type, binning, feature selection). Then we will proceed to apply the Decision Tree model to the data and explore the results.
+  
+  
+```{r pred post, include=FALSE}
+incompletef <- read.csv("SurveyIncomplete.csv")
+incompletef
+
+#feature sel
+incomplete<- incompletef[c(1,2,7)]
+incomplete
+#preprocessing
+incomplete$salary<-normalize(incomplete$salary)
+incomplete$age<-normalize(incomplete$age)
+incomplete$brand<-as.factor(incomplete$brand)
+levels(incomplete$brand) <- c("Acer","Sony")
+str(incomplete)
+
+bin(
+  incomplete$salary,
+  nbins = 5, 
+  labels = NULL, 
+  method = c( "content")
+)
+
+str(incomplete)
+```
+  After applying the mdoel we can see that it predicted that 1913 of our customers prefer ACer and the rest of 3087 prefer Sony.
+```{r prediction, echo=TRUE}
+
+#Applying the mdoel to the incomplete data
+finalPredictionBrand <- predict(treeFit, newdata = incomplete)
+
+#summary of the results
+summary(finalPredictionBrand)
+
+#adding the predicted values to the incomplete data and bringing back the other features
+
+completeNewData <- incompletef[c(1,2,3,4,5,6)]
+completeNewData <- cbind(completeNewData, predictedBrand = finalPredictionBrand)
+head(completeNewData)
+```
+
+## Visualizing the Results of the Prediction
+
+  The proportions of the two brands in the predicted data confirm the above statement. It's visible that there are more customers that prefer the Sony brand than Acer. It's interesting that this proportion is similar to the one in the complete data. We expected this because the two sets of data have similar distributions.
+  
+```{r pie pred, echo=FALSE}
+
+ ggplot(completeNewData,aes(x="",fill=predictedBrand)) +
+     geom_bar() +
+    coord_polar(theta = "y")+
+    labs(x=" ",y=" ", title = "Proportion of Predicted Brands")+
+    theme_light()
+
+```
+
+# Suggestions for the Future
+
+  After doing the analysis and all the predictions, even though we have a good accuracy and the model seems to work properly we cannot be content because we knew from the beggining that the data has an abnormal distribution and it looks like it came from a stratificated sampling process. Because of this the data that we it's not representative for the population. Anyhow, the decision tree,beeing a non parametric model  is not highly sensitive to abnormal data distribution so we continued with the process.
+   
+  To fully correct this and to be able to use the data in the future with higher confidence we need to collect data in a way that it will be representative for the population.
