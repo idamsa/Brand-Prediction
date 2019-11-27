@@ -6,17 +6,20 @@ library(OneR)
 library(Hmisc)
 library(C50)
 
-#bringing the data
+#bringing the data_____________________________________________________________________________
+
 complete<-read.csv("CompleteResponses.csv")
 
+#about the data______________________________________________________________________________
 
-#PLOTTING THE DATA
-#plot(complete)
+summary(complete)
+str(complete)
+nrow(complete)
 
-ggplot(data = complete,
-       mapping = aes(x = credit, y = salary, color = brand)) +
-geom_point()
-tinytex::install_tinytex()
+#normally distributed?
+shapiro.test(complete$salary) ###data is not normally distributed
+
+#PLOTTING THE DATA exploratory________________________________________________________________
 
 hist(complete$credit, freq = F)
 hist(complete$age, freq = F) 
@@ -26,14 +29,41 @@ hist(complete$salary,probability=T, main="data distrbution
 ",xlab="salary")
 lines(density(complete$salary),col=2)
 
+#salary hist
 
-shapiro.test(testing$salary) ###data is not normally distributed
+ggplot(complete,aes(x=salary))+
+  geom_histogram(bins = 30,color="black",fill="cyan2")+
+  ggtitle("The Distribution of the Salary")+
+  scale_x_continuous(name="Salary",breaks=seq(20000,500000,50000))
 
 
-#about the data______________________________________________________________________________-
-summary(complete)
-str(complete)
-nrow(complete)
+#credit hist
+
+ggplot(complete,aes(x=credit))+
+  geom_histogram(binwidth  =20000,color="black",fill="cyan2")+
+  ggtitle("The Distribution of the Credit")+
+  scale_x_continuous(name="Credit", breaks=seq(0,500000,50000))
+
+#brand only related bar/pie 
+
+ggplot(complete,aes(x=Preferedbrand, fill=Preferedbrand))+
+  geom_bar()+
+  labs(title="Prefered Brands by Number")+
+  theme_light()
+
+
+ggplot(complete, aes(x="",fill=Preferedbrand))+
+  geom_bar()+ 
+  coord_polar(theta="y")+
+  labs(x=" ",y=" ", title = "Proportion of Prefered Brands")+
+  theme_light()
+
+#Relation age and pref scatter
+
+ggplot(complete, aes(x=age, y=salary, col=Preferedbrand)) + 
+  geom_point()+
+  labs(title="Relationship Between Age, Salary and Brand Preference")
+
 
 
 #FEATURE SELECTION ___________________________________________________________________FEATURE SELECTION
@@ -44,28 +74,11 @@ res2 <- rcorr(as.matrix(complete))
 
 res2
 
-#decision tree on the data
-library(rpart)
-
-rpartMod = rpart(brand ~ .
-                 , data = training
-                 , control = rpart.control(minsplit = 5
-                                           , cp = 0
-                                           , maxdepth = 3)
-)
-
-pred = predict(rpartMod, testing, type = "class")
-sum(testing[, 5] != pred)
-
-#visualize decision tree# we see that the tree chose salary and age as the nodes
-library(rattle)
-fancyRpartPlot(rpartMod)
-
 #removing car,elevels,credit attributes
 complete <- complete[c(1,2,7)]
 str(complete)
 
-#__________________________________________________________________
+#_________________________________________________________________________________________
 #PREPROCESSING
 
 #normalizing the age and salary
@@ -133,7 +146,24 @@ head(testing)
 head(training)
 str(testing)
 
+#decision tree on the data for feature importance__________________________________________________DECISION TREE ONLY
 
+library(rpart)
+
+rpartMod = rpart(brand ~ .
+                 , data = training
+                 , control = rpart.control(minsplit = 5
+                                           , cp = 0
+                                           , maxdepth = 3)
+)
+
+pred = predict(rpartMod, testing, type = "class")
+sum(testing[, 5] != pred)
+
+#visualize decision tree# we see that the tree chose salary and age as the nodes
+
+library(rattle)
+fancyRpartPlot(rpartMod)
 
 #___________________________________________________________________________________________BUILDING THE MODELS________
 #BUILGING THE MODELS
@@ -174,6 +204,8 @@ treeProbs
 #confusion matrix and the statistics
 
 confusionMatrix(data= treeBrand, testing$brand)
+
+#plot predicted vs observed tree
 
 
 summary(treeFit)
@@ -251,15 +283,18 @@ summary(diffs)
 plot.train(treeFit)
 #rf better
 
-###APPLYING THE RandomTree MODEL ON THE INCOMPLETE DATA
+###APPLYING THE RandomTree MODEL ON THE INCOMPLETE DATA_____________________________________________________
 
 
 incompletef <- read.csv("SurveyIncomplete.csv")
 incomplete
 
 #feature sel
+
 incomplete<- incompletef[c(1,2,7)]
+
 #preprocessing
+
 incomplete$salary<-normalize(incomplete$salary)
 incomplete$age<-normalize(incomplete$age)
 incomplete$brand<-as.factor(incomplete$brand)
@@ -283,22 +318,16 @@ finalPredictionBrandProbs <- predict(treeFit, newdata = incomplete, type = "prob
 
 finalPredictionBrandProbs
 
-#After making the predictions using the test set use postResample() 
-#to assess the metrics of the new predictions compared to the Ground Truth???? 
-#  Accuracy       Kappa 
-# 0.528016360 0.003599927 
-
-postResample(finalPredictionBrand,testing$brand)
-
-postResample(finalPredictionBrandProbs,treeProbs)
 
 #summary predictions
+
 summary(finalPredictionBrand)
 
+
+#construct the csv with the predicted values
 
 completeNewData <- incompletef[c(1,2,3,4,5,6)]
 completeNewData <- cbind(completedNewData, predictedBrand = finalPredictionBrand)
 completeNewData
 write.csv(completeNewData, "PredictedBrands.csv")
 
-          
